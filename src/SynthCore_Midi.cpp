@@ -70,11 +70,11 @@ void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
             uint8_t channel = msg.channel;
             if(parameters.split_to_channels){channel = getUnactiveChannel(channel);}
             uint8_t vid = _synthcore->getVIDByChannel(msg.data1,channel);
+            uint8_t latest_vid = _synthcore->isChannelActive(channel);
+            SynthCore::Voice latest_voice = _synthcore->getVoiceInfo(latest_vid);
 
-            uint8_t latest_voice_id = _synthcore->isChannelActive(channel);
-
-            if(channel_parameters[channel].pitch_slide){
-                if(latest_voice_id == 255){note_command_action = CommandType::RETRIGGER_SLIDE;}
+            if(channel_parameters[channel].pitch_slide and latest_vid != 255){
+                if(latest_voice.note == msg.data1){note_command_action = CommandType::RETRIGGER_SLIDE;}
                 else{note_command_action = CommandType::PITCH_SLIDE;}
             }
             if(channel == 9){note_command_action = CommandType::DRUM_ON;}
@@ -93,12 +93,12 @@ void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
                     break;
 
                 case CommandType::PITCH_SLIDE:
-                    _synthcore->slideVoice(latest_voice_id, channel, msg.data1, parameters.pitch_slide_ms);
+                    _synthcore->slideVoice(latest_vid, channel, msg.data1, parameters.pitch_slide_ms);
                     break;
                 
                 case CommandType::RETRIGGER_SLIDE:
                     parameters.start_pitch = msg.data1;
-                    _synthcore->releaseVoice(latest_voice_id);
+                    _synthcore->releaseVoice(latest_vid);
                     _synthcore->createVoice(instruments + channel_parameters[channel].SampleID, msg.data1, Q_volume, channel, false);
                     break;
                 case CommandType::DRUM_ON:
