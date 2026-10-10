@@ -1,4 +1,4 @@
-#ifndef SC_MIDI_
+#ifndef SC_MIDI_H
     #define SC_MIDI_H
 #include <stdint.h>
 #include <SynthCore.h>
@@ -18,6 +18,21 @@ class SynthCoreMidi{
             bool bend_override = false;
             bool volume_override = false;
         };
+        struct MidiChannelParameters{
+            uint8_t SampleID = 0;
+            Q_TYPE max_lfo_semitone_range = 2;
+            float max_lfo_herz = 10;
+
+            bool split_to_channels = false;
+
+            bool pitch_slide = false;
+            uint16_t pitch_slide_ms = 50;
+            uint8_t start_pitch = 0;
+            uint8_t end_pitch = 0;
+
+            SynthCore::ChannelParameters parameters;
+            ChannelOverride override_parameters;
+        };
 
     private:
         SynthCore* _synthcore = nullptr;
@@ -31,22 +46,20 @@ class SynthCoreMidi{
 
         uint8_t getSIDorFallback(uint8_t SID,bool is_percussion);
 
-        SynthCore::ChannelParameters channels_parameters[16];
-        uint8_t channels_sid[16];
-        ChannelOverride channels_overrides[16];
+        MidiChannelParameters channel_parameters[16];
+        uint8_t getUnactiveChannel(uint8_t channel);
+        uint8_t note_channel[MAX_CHANNELS][128];
+        uint8_t slide_vid[MAX_CHANNELS];
     public:
         void setup(SynthCore *synthcore);
         void ProcessMidi(MidiMessage msg);
-        void SetChannnelOverrides(uint8_t channel, ChannelOverride overrides);
-        void SetChannelParameters(bool override, uint8_t channel, SynthCore::ChannelParameters parameters);
-        void SetChannelInstrument(bool override, uint8_t channel, uint8_t instrument);
+        void SetChannelParameters(bool is_override, uint8_t channel, MidiChannelParameters parameters);
+        MidiChannelParameters GetChannelParameters(uint8_t channel);
         void setSamplePointers(const SampleData* inst, const SampleData* perc);
         void updateAudioBuffer();
         int16_t* getAudioBuffer();
         int16_t channel_TX_buffers[16][BUFFER_SIZE];
-        ChannelOverride GetChannelOverrides(uint8_t channel);
-        SynthCore::ChannelParameters GetChannelParameters(uint8_t channel);
-        uint8_t getChannelSID(uint8_t channel);
+
 
 
 };
