@@ -35,6 +35,14 @@ class SynthCoreMidi{
         };
 
     private:
+        enum class CommandType{
+            NOTE_ON,
+            NOTE_OFF,
+            DRUM_ON,
+            PITCH_SLIDE,
+            RETRIGGER_SLIDE
+        };
+
         SynthCore* _synthcore = nullptr;
         #define BUFFER_SIZE 256
         int16_t _BufferA[BUFFER_SIZE];

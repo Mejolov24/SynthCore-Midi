@@ -65,55 +65,52 @@ void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
     MidiControlChange control = static_cast<MidiControlChange>(msg.data1);
     switch (message) {
         
-        case MidiType::NoteOn: // omg this monolitic ahh needs to be refactored
-            if (msg.data2 < 0) {
-                if (!is_percussion){
-                    //splitting
-                    uint8_t channel = msg.channel;
-                    if(parameters.split_to_channels){channel = getUnactiveChannel(channel);}
-                    
-                    // pitch slide
-                    if(channel_parameters[channel].pitch_slide){
-                        uint8_t latest_voice_id = _synthcore->isChannelActive(channel);
+        case MidiType::NoteOn:{
+            CommandType note_command_action = CommandType::NOTE_ON;
+            uint8_t channel = msg.channel;
+            if(parameters.split_to_channels){channel = getUnactiveChannel(channel);}
+            uint8_t vid = _synthcore->getVIDByChannel(msg.data1,channel);
 
-                        if(latest_voice_id != 255){ // check if we have a note
-                            SynthCore::Voice latest_voice = _synthcore->getVoiceInfo(latest_voice_id);
-                            if(latest_voice.note != msg.data1){ // check if its the same note
-                                _synthcore->slideVoice(latest_voice_id, channel, msg.data1, parameters.pitch_slide_ms);
-                                }
-                            else{
-                            // Same note, retrigger it
-                                parameters.start_pitch = msg.data1;
-                                _synthcore->releaseVoice(latest_voice_id);
-                                _synthcore->createVoice(instruments + channel_parameters[channel].SampleID, msg.data1, Q_volume, channel, false);
-                            }
-                        }
-                        else{
-                            if(latest_voice_id != 255){
-                                _synthcore->releaseVoice(latest_voice_id);
-                            }
-                            parameters.start_pitch = msg.data1;
-                            _synthcore->releaseVoice(latest_voice_id);
-                            _synthcore->createVoice(instruments + channel_parameters[channel].SampleID,msg.data1,Q_volume,channel,false);
-                        }
-                    }
-                    else{
-                        parameters.start_pitch = msg.data1;
-                        _synthcore->createVoice(instruments + channel_parameters[channel].SampleID,msg.data1,Q_volume,channel,false);
-                    }
-                    note_channel[msg.channel][msg.data1] = channel;
-                }
-                else {_synthcore->createVoice(percussion + getSIDorFallback(msg.data1,true),msg.data1,Q_volume,msg.channel,true);}
-            } else {
-                    uint8_t channel = msg.channel;
-                    if(parameters.split_to_channels){channel = note_channel[msg.channel][msg.data1];}
-                    if(channel != 255){
-                        uint8_t vid = _synthcore->getVIDByChannel(msg.data1,channel);
-                        _synthcore->releaseVoice(vid);
-                        note_channel[msg.channel][msg.data1] = 255;
-                    }
+            uint8_t latest_voice_id = _synthcore->isChannelActive(channel);
+
+            if(channel_parameters[channel].pitch_slide){
+                if(latest_voice_id == 255){note_command_action = CommandType::RETRIGGER_SLIDE;}
+                else{note_command_action = CommandType::PITCH_SLIDE;}
             }
+            if(channel == 9){note_command_action = CommandType::DRUM_ON;}
+            if(msg.data1 == 0){note_command_action = CommandType::NOTE_OFF;}
+
+            switch (note_command_action){
+                case CommandType::NOTE_ON:
+                    parameters.start_pitch = msg.data1;
+                    _synthcore->createVoice(instruments + channel_parameters[channel].SampleID,msg.data1,Q_volume,channel,false);
+                    break;
+                
+                case CommandType::NOTE_OFF:
+                    if(channel_parameters[channel].pitch_slide){break;}
+                    _synthcore->releaseVoice(vid);
+                    note_channel[msg.channel][msg.data1] = 255;
+                    break;
+
+                case CommandType::PITCH_SLIDE:
+                    _synthcore->slideVoice(latest_voice_id, channel, msg.data1, parameters.pitch_slide_ms);
+                    break;
+                
+                case CommandType::RETRIGGER_SLIDE:
+                    parameters.start_pitch = msg.data1;
+                    _synthcore->releaseVoice(latest_voice_id);
+                    _synthcore->createVoice(instruments + channel_parameters[channel].SampleID, msg.data1, Q_volume, channel, false);
+                    break;
+                case CommandType::DRUM_ON:
+                    _synthcore->createVoice(percussion + getSIDorFallback(msg.data1,true),msg.data1,Q_volume,msg.channel,true);
+                    break;
+                
+                default:
+                    break;
+                }
+                note_channel[msg.channel][msg.data1] = channel; // for channel splitting
             break;
+        }
         
         case MidiType::NoteOff:{
                     uint8_t channel = msg.channel;
