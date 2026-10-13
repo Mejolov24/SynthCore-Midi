@@ -57,23 +57,39 @@ uint8_t SynthCoreMidi::getUnactiveChannel(uint8_t channel){
     return channel;
 }
 
+void SynthCoreMidi::process_time(uint32_t millis){
+    current_millis = millis;
+    for(uint8_t channel = 0; channel < 16; channel++){
+        bool cutoff_exceeded = (current_millis >= channel_parameters[channel].current_pitch_slide_cuttof_ms);
+        channel_parameters[channel].cutoff_exceeded = cutoff_exceeded;
+        if(channel_parameters[channel].pending_note_off and cutoff_exceeded){
+            _synthcore->releaseVoice(slide_vid[channel]);
+            slide_vid[channel] = 255;
+            channel_parameters[channel].pending_note_off = false;
+        }
+    }
+}
+
 void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
     MidiChannelParameters parameters = channel_parameters[msg.channel];
     Q_TYPE Q_volume = Q_TYPE(static_cast<float>(msg.data2) / 127.0f);
     bool is_percussion (msg.channel == 9);
     MidiType message = static_cast<MidiType>(msg.type);
     MidiControlChange control = static_cast<MidiControlChange>(msg.data1);
+
+    uint8_t channel = msg.channel;
+    if(parameters.split_to_channels){channel = getUnactiveChannel(channel);}
+    parameters = channel_parameters[channel];
+    uint8_t vid = _synthcore->getVIDByChannel(msg.data1,msg.channel);
+    uint8_t latest_vid = _synthcore->isChannelActive(channel);
+    SynthCore::Voice latest_voice = _synthcore->getVoiceInfo(latest_vid);
+
     switch (message) {
         
         case MidiType::NoteOn:{
             CommandType note_command_action = CommandType::NOTE_ON;
-            uint8_t channel = msg.channel;
-            if(parameters.split_to_channels){channel = getUnactiveChannel(channel);}
-            uint8_t vid = _synthcore->getVIDByChannel(msg.data1,channel);
-            uint8_t latest_vid = _synthcore->isChannelActive(channel);
-            SynthCore::Voice latest_voice = _synthcore->getVoiceInfo(latest_vid);
 
-            if(channel_parameters[channel].pitch_slide and latest_vid != 255){
+            if(parameters.pitch_slide and latest_vid != 255){
                 if(latest_voice.note == msg.data1){note_command_action = CommandType::RETRIGGER_SLIDE;}
                 else{note_command_action = CommandType::PITCH_SLIDE;}
             }
@@ -82,24 +98,38 @@ void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
 
             switch (note_command_action){
                 case CommandType::NOTE_ON:
+                    parameters.pending_note_off = false;
                     parameters.start_pitch = msg.data1;
-                    _synthcore->createVoice(instruments + channel_parameters[channel].SampleID,msg.data1,Q_volume,channel,false);
+                    slide_vid[channel] = _synthcore->createVoice(instruments + parameters.SampleID,msg.data1,Q_volume,channel,false);
                     break;
                 
-                case CommandType::NOTE_OFF:
-                    if(channel_parameters[channel].pitch_slide){break;}
+                case CommandType::NOTE_OFF:{
+                    if(vid == 255) break;
+                    if(parameters.pitch_slide){
+                        parameters.pending_note_off = true;
+                        parameters.current_pitch_slide_cuttof_ms =
+                            current_millis + parameters.pitch_slide_cuttof_ms;
+                        break;
+                    }
+
                     _synthcore->releaseVoice(vid);
                     note_channel[msg.channel][msg.data1] = 255;
+                    slide_vid[channel] = 255;
                     break;
+                }
 
                 case CommandType::PITCH_SLIDE:
+                    parameters.pending_note_off = false;
+                    parameters.current_pitch_slide_cuttof_ms = current_millis + parameters.pitch_slide_cuttof_ms;
                     _synthcore->slideVoice(latest_vid, channel, msg.data1, parameters.pitch_slide_ms);
                     break;
                 
                 case CommandType::RETRIGGER_SLIDE:
+                    parameters.pending_note_off = false;
+                    parameters.current_pitch_slide_cuttof_ms = current_millis + parameters.pitch_slide_cuttof_ms;
                     parameters.start_pitch = msg.data1;
                     _synthcore->releaseVoice(latest_vid);
-                    _synthcore->createVoice(instruments + channel_parameters[channel].SampleID, msg.data1, Q_volume, channel, false);
+                    slide_vid[channel] = _synthcore->createVoice(instruments + parameters.SampleID, msg.data1, Q_volume, channel, false);
                     break;
                 case CommandType::DRUM_ON:
                     _synthcore->createVoice(percussion + getSIDorFallback(msg.data1,true),msg.data1,Q_volume,msg.channel,true);
@@ -113,14 +143,17 @@ void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
         }
         
         case MidiType::NoteOff:{
-                    uint8_t channel = msg.channel;
-                    if(parameters.split_to_channels){channel = note_channel[msg.channel][msg.data1];}
-                    if(channel != 255){
-                        if(channel_parameters[channel].pitch_slide){break;}
-                        uint8_t vid = _synthcore->getVIDByChannel(msg.data1,channel);
-                        _synthcore->releaseVoice(vid);
-                        note_channel[msg.channel][msg.data1] = 255;
+                    if(vid == 255) break;
+                    if(parameters.pitch_slide){
+                        parameters.pending_note_off = true;
+                        parameters.current_pitch_slide_cuttof_ms =
+                            current_millis + parameters.pitch_slide_cuttof_ms;
+                        break;
                     }
+
+                    _synthcore->releaseVoice(vid);
+                    note_channel[msg.channel][msg.data1] = 255;
+                    slide_vid[channel] = 255;
                     break;
                 }
         case MidiType::ProgramChange:
@@ -164,7 +197,7 @@ void SynthCoreMidi::ProcessMidi(MidiMessage msg) {
         default:
             break;
         }
-        SetChannelParameters(false,msg.channel,parameters);
+    SetChannelParameters(false,channel,parameters);
 }
 
 
